@@ -140,7 +140,17 @@ app.get("/api/stats", async (_req, res) => {
     const response = await storageFetch("/api/v1/stats");
     const result = await response.json();
 
-    const counts = result.workers as Record<string, number>;
+    const counts: Record<string, number> = {};
+
+    if (Array.isArray(result.workers)) {
+      for (const worker of result.workers) {
+        counts[String(worker.workerId)] = Number(worker.count);
+      }
+    } else {
+      for (const [workerId, count] of Object.entries(result.workers ?? {})) {
+        counts[workerId] = Number(count);
+      }
+    }
 
     // Luôn hiển thị 5 worker chính, kể cả chưa có ảnh.
     const workerIds = new Set([
