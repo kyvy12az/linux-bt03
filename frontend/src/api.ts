@@ -1,5 +1,5 @@
 export interface GalleryImage {
-  id: number;
+  id: string;
   name: string;
   subject: string;
   memberId: number;

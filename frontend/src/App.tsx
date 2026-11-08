@@ -105,7 +105,7 @@ export default function App() {
           </button>
 
           <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            Dữ liệu mẫu
+            Kho ảnh AI
           </span>
         </nav>
       </header>
@@ -121,8 +121,7 @@ export default function App() {
           </h1>
 
           <p className="mx-auto mt-5 max-w-xl leading-7 text-slate-500">
-            Tìm kiếm bằng tên tiếng Anh. Giao diện đang kết nối với
-            backend dữ liệu mẫu của nhóm.
+            Tìm kiếm ảnh AI theo tên tiếng Anh, phong cách Mondrian geometric.
           </p>
 
           <form
@@ -231,9 +230,8 @@ export default function App() {
                 Cần tạo ảnh mới cho “{search.keyword}”
               </h3>
               <p className="mt-3 leading-7 text-amber-800">
-                Bản mẫu chưa kết nối bộ điều phối và AI worker.
-                Chưa có nhiệm vụ sinh ảnh nào được gửi.
-                Khi tích hợp ID 3, trạng thái sinh ảnh sẽ xuất hiện tại đây.
+                Kho hiện chưa có ảnh phù hợp. Chức năng tự sinh theo yêu cầu
+                đang chờ kết nối bộ điều phối.
               </p>
             </div>
           )}
@@ -248,7 +246,7 @@ export default function App() {
                   >
                     <img
                       src={image.url}
-                      alt={`Ảnh minh họa mẫu: ${image.subject}`}
+                      alt={`Ảnh ${image.subject} theo phong cách Mondrian geometric`}
                       width={512}
                       height={512}
                       loading="lazy"
@@ -265,7 +263,7 @@ export default function App() {
                           AI {image.workerId}
                         </span>
                         <span className="text-slate-400">
-                          #{image.id} · DEMO
+                          #{image.id}
                         </span>
                       </div>
 
@@ -320,7 +318,7 @@ export default function App() {
             <h2 className="text-xl font-bold">Đóng góp của các AI</h2>
             <p className="mt-2 text-sm text-slate-500">
               {stats
-                ? `Tổng kho: ${stats.total} ảnh mẫu · Thống kê toàn bộ kho`
+                ? `Tổng kho: ${stats.total} ảnh · Thống kê toàn bộ kho`
                 : "Đang tải thống kê..."}
             </p>
           </div>
@@ -357,7 +355,7 @@ export default function App() {
           </div>
 
           <p className="mt-7 text-center text-xs leading-6 text-slate-400">
-            Atlas Gallery · BT-03 · Ảnh SVG minh họa, chưa phải ảnh AI sinh
+            Atlas Gallery · BT-03 · Mondrian geometric
           </p>
         </footer>
       </main>

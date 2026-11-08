@@ -1,27 +1,56 @@
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import { mockImages } from "./data/mock-images.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 8000);
 
-app.use(cors({
-  origin: "http://localhost:5173",
-}));
+const storageUrl = (
+  process.env.ID2_BASE_URL ?? "http://100.96.99.43:8000"
+).replace(/\/$/, "");
 
+app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json({ limit: "16kb" }));
+
+async function storageFetch(path: string) {
+  const headers: Record<string, string> = {};
+
+  if (process.env.ID2_API_KEY) {
+    headers["X-API-Key"] = process.env.ID2_API_KEY;
+  }
+
+  const response = await fetch(`${storageUrl}${path}`, {
+    headers,
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Kho ảnh trả HTTP ${response.status}`);
+  }
+
+  return response;
+}
+
+function reportError(res: express.Response, error: unknown) {
+  console.error(
+    "[ID2]",
+    error instanceof Error ? error.message : "Storage request failed",
+  );
+
+  res.status(502).json({
+    message: "Không kết nối được kho ảnh. Vui lòng thử lại.",
+  });
+}
 
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "bt03-backend",
-    mode: "demo",
+    mode: "remote",
   });
 });
 
-// Danh sách ảnh, tìm kiếm và phân trang.
-app.get("/api/images", (req, res) => {
+app.get("/api/images", async (req, res) => {
   const rawPage = req.query.page ?? "1";
   const rawQuery = req.query.q ?? "";
 
@@ -31,82 +60,109 @@ app.get("/api/images", (req, res) => {
   }
 
   const page = Number(rawPage);
-  const keyword = rawQuery.trim().toLowerCase().replace(/\s+/g, " ");
 
-  if (!Number.isSafeInteger(page) || page < 1 || keyword.length > 120) {
+  if (!Number.isSafeInteger(page) || page < 1 || rawQuery.length > 120) {
     res.status(400).json({ message: "Trang hoặc từ khóa không hợp lệ." });
     return;
   }
 
-  const pageSize = 50;
-  const matches = mockImages.filter((image) =>
-    image.subject.includes(keyword)
-  );
-
-  const start = (page - 1) * pageSize;
-
-  res.json({
-    mode: "demo",
-    items: matches.slice(start, start + pageSize),
-    page,
-    pageSize,
-    total: matches.length,
-    totalPages: Math.ceil(matches.length / pageSize),
-    needsGeneration: keyword.length > 0 && matches.length === 0,
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: "50",
+    q: rawQuery.trim(),
   });
+
+  try {
+    const response = await storageFetch(`/api/v1/images?${params}`);
+    const result = await response.json();
+
+    // Đổi đường dẫn ảnh thành đường dẫn trên website ID1.
+    const items = result.items.map(
+      (image: {
+        id: string | number;
+        [key: string]: unknown;
+      }) => ({
+        ...image,
+        id: String(image.id),
+        url: `/api/images/${encodeURIComponent(String(image.id))}/file`,
+      }),
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      mode: "remote",
+      items,
+      page: result.page,
+      pageSize: result.pageSize,
+      total: result.total,
+      totalPages: Math.ceil(result.total / result.pageSize),
+      needsGeneration: rawQuery.trim().length > 0 && result.total === 0,
+    });
+  } catch (error) {
+    reportError(res, error);
+  }
 });
 
-// Thống kê toàn bộ kho, không phụ thuộc bộ lọc tìm kiếm.
-app.get("/api/stats", (_req, res) => {
-  const workers = Array.from({ length: 5 }, (_, index) => {
-    const workerId = `${index + 1}.1`;
+app.get("/api/images/:id/file", async (req, res) => {
+  const id = req.params.id;
 
-    return {
-      workerId,
-      count: mockImages.filter((image) => image.workerId === workerId).length,
-    };
-  });
-
-  res.json({
-    mode: "demo",
-    total: mockImages.length,
-    workers,
-  });
-});
-
-// Ảnh minh họa nội bộ, không cần dịch vụ ảnh bên ngoài.
-app.get("/api/demo-images/:id.svg", (req, res) => {
-  const id = Number(req.params.id);
-  const image = mockImages.find((item) => item.id === id);
-
-  if (!image) {
-    res.status(404).json({ message: "Ảnh mẫu không tồn tại." });
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    res.status(400).json({ message: "ID ảnh không hợp lệ." });
     return;
   }
 
-  const colors = ["#e0e7ff", "#fce7f3", "#dcfce7", "#ffedd5", "#e0f2fe"];
-  const background = colors[(image.memberId - 1) % colors.length];
+  try {
+    const response = await storageFetch(
+      `/api/v1/images/${encodeURIComponent(id)}/file`,
+    );
 
-  res.type("svg").send(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
-      <rect width="512" height="512" rx="24" fill="${background}"/>
-      <circle cx="256" cy="190" r="85" fill="white" opacity="0.7"/>
-      <text x="256" y="205" text-anchor="middle"
-        font-family="Arial" font-size="40" fill="#334155">
-        ${image.id}
-      </text>
-      <text x="256" y="340" text-anchor="middle"
-        font-family="Arial" font-size="30" fill="#0f172a">
-        ${image.subject}
-      </text>
-      <text x="256" y="390" text-anchor="middle"
-        font-family="Arial" font-size="20" fill="#64748b">
-        DEMO · AI ${image.workerId}
-      </text>
-    </svg>
-  `);
+    const contentType = (
+      response.headers.get("content-type") ?? ""
+    ).split(";")[0];
+
+    if (!["image/png", "image/jpeg"].includes(contentType)) {
+      throw new Error("Kho trả dữ liệu không phải PNG/JPEG.");
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "no-cache");
+    res.send(buffer);
+  } catch (error) {
+    reportError(res, error);
+  }
+});
+
+app.get("/api/stats", async (_req, res) => {
+  try {
+    const response = await storageFetch("/api/v1/stats");
+    const result = await response.json();
+
+    const counts = result.workers as Record<string, number>;
+
+    // Luôn hiển thị 5 worker chính, kể cả chưa có ảnh.
+    const workerIds = new Set([
+      "1.1", "2.1", "3.1", "4.1", "5.1",
+      ...Object.keys(counts),
+    ]);
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      mode: "remote",
+      total: result.total,
+      workers: [...workerIds].sort().map((workerId) => ({
+        workerId,
+        count: counts[workerId] ?? 0,
+      })),
+    });
+  } catch (error) {
+    reportError(res, error);
+  }
 });
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Backend: http://localhost:${port}`);
+  console.log(`Storage: ${storageUrl}`);
 });

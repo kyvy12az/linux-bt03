@@ -8,6 +8,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8000"
+      ID2_BASE_URL: ${ID2_BASE_URL:-http://100.96.99.43:8000}
+      ID2_API_KEY: ${ID2_API_KEY}
     restart: unless-stopped
     healthcheck:
       test:
