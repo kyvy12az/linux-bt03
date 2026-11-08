@@ -172,6 +172,117 @@ app.get("/api/stats", async (_req, res) => {
   }
 });
 
+const dispatcherUrl = (
+  process.env.DISPATCHER_BASE_URL ?? "http://100.86.246.4:8003"
+).replace(/\/$/, "");
+
+async function dispatcherFetch(
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown,
+) {
+  const response = await fetch(`${dispatcherUrl}${path}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(body === undefined
+        ? {}
+        : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ID3 trả HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+app.post("/api/search", async (req, res) => {
+  const query = req.body?.query;
+
+  if (
+    typeof query !== "string" ||
+    !query.trim() ||
+    query.length > 120
+  ) {
+    res.status(400).json({ message: "Từ khóa không hợp lệ." });
+    return;
+  }
+
+  try {
+    const result = await dispatcherFetch(
+      "/api/v1/search",
+      "POST",
+      {
+        query,
+        style: "mondrian-geometric",
+      },
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
+  } catch (error) {
+    console.error("[ID3 search]", error);
+    res.status(502).json({
+      message: "Chưa kết nối được bộ điều phối. Vui lòng thử lại.",
+    });
+  }
+});
+
+app.get("/api/jobs/:jobId", async (req, res) => {
+  const jobId = req.params.jobId;
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(jobId)) {
+    res.status(400).json({ message: "Mã nhiệm vụ không hợp lệ." });
+    return;
+  }
+
+  try {
+    const result = await dispatcherFetch(
+      `/api/v1/jobs/${encodeURIComponent(jobId)}`,
+      "GET",
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
+  } catch (error) {
+    console.error("[ID3 job]", error);
+    res.status(502).json({
+      message: "Không đọc được trạng thái sinh ảnh.",
+    });
+  }
+});
+
+// Thông tin ảnh sau khi nhiệm vụ hoàn thành.
+app.get("/api/images/:id", async (req, res) => {
+  const id = req.params.id;
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    res.status(400).json({ message: "ID ảnh không hợp lệ." });
+    return;
+  }
+
+  try {
+    const response = await storageFetch(
+      `/api/v1/images/${encodeURIComponent(id)}`,
+    );
+
+    const image = await response.json();
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ...image,
+      id: String(image.id),
+      url: `/api/images/${encodeURIComponent(String(image.id))}/file`,
+    });
+  } catch (error) {
+    reportError(res, error);
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`Backend: http://localhost:${port}`);
   console.log(`Storage: ${storageUrl}`);

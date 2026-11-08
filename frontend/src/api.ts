@@ -28,6 +28,24 @@ export interface StatsResponse {
   }[];
 }
 
+export interface SearchResponse {
+  status: "queued" | "running" | "completed" | "failed";
+  foundInStore: boolean;
+  subject: string;
+  style: string;
+  jobId?: string;
+  image?: GalleryImage;
+}
+
+export interface JobResponse {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  subject: string;
+  workerId: string;
+  imageId: string;
+  error: string;
+}
+
 async function request<T>(
   path: string,
   signal?: AbortSignal,
@@ -56,4 +74,36 @@ export function getImages(
 
 export function getStats(signal?: AbortSignal) {
   return request<StatsResponse>("/api/stats", signal);
+}
+
+export async function searchImages(
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  const response = await fetch("/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error("Không gửi được yêu cầu tìm kiếm tới bộ điều phối.");
+  }
+
+  return response.json() as Promise<SearchResponse>;
+}
+
+export function getJob(jobId: string, signal?: AbortSignal) {
+  return request<JobResponse>(
+    `/api/jobs/${encodeURIComponent(jobId)}`,
+    signal,
+  );
+}
+
+export function getImage(id: string, signal?: AbortSignal) {
+  return request<GalleryImage>(
+    `/api/images/${encodeURIComponent(id)}`,
+    signal,
+  );
 }

@@ -10,6 +10,7 @@ services:
       PORT: "8000"
       ID2_BASE_URL: ${ID2_BASE_URL:-http://100.96.99.43:8000}
       ID2_API_KEY: ${ID2_API_KEY}
+      DISPATCHER_BASE_URL: ${DISPATCHER_BASE_URL:-http://100.86.246.4:8003}
     restart: unless-stopped
     healthcheck:
       test:
