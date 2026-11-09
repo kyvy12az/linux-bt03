@@ -342,7 +342,7 @@ export default function App() {
                     />
                     <div className="p-4">
                       <h3 className="break-words text-sm font-semibold">
-                        {image.name}
+                        {`${image.subject} ${image.workerId}.png`}
                       </h3>
                       <p className="mt-3 text-xs font-medium text-indigo-600">
                         AI {image.workerId}
