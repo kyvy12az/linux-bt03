@@ -283,6 +283,92 @@ app.get("/api/images/:id", async (req, res) => {
   }
 });
 
+async function deleteFromStorage(
+  res: express.Response,
+  path: string,
+  method: "DELETE" | "POST",
+  body?: unknown,
+) {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+
+    if (process.env.ID2_API_KEY) {
+      headers["X-API-Key"] = process.env.ID2_API_KEY;
+    }
+
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(`${storageUrl}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    res.setHeader("Cache-Control", "no-store");
+
+    const contentType = response.headers.get("content-type");
+    if (contentType) {
+      res.setHeader("Content-Type", contentType);
+    }
+
+    // Giữ nguyên status và body từ ID2, hỗ trợ cả 204.
+    res.status(response.status).send(await response.text());
+  } catch (error) {
+    reportError(res, error);
+  }
+}
+
+// Xóa nhiều ảnh.
+app.post("/api/images/bulk-delete", async (req, res) => {
+  const ids: unknown = req.body?.image_ids;
+
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.length > 50 ||
+    !ids.every(
+      (id) =>
+        typeof id === "string" &&
+        /^[a-zA-Z0-9_-]+$/.test(id),
+    )
+  ) {
+    res.status(400).json({
+      message: "Cần chọn từ 1 đến 50 ID ảnh hợp lệ.",
+    });
+    return;
+  }
+
+  await deleteFromStorage(
+    res,
+    "/api/v1/images/bulk-delete",
+    "POST",
+    { image_ids: [...new Set(ids)] },
+  );
+});
+
+// Xóa một ảnh.
+app.delete("/api/images/:id", async (req, res) => {
+  const id = req.params.id;
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    res.status(400).json({
+      message: "ID ảnh không hợp lệ.",
+    });
+    return;
+  }
+
+  await deleteFromStorage(
+    res,
+    `/api/v1/images/${encodeURIComponent(id)}`,
+    "DELETE",
+  );
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`Backend: http://localhost:${port}`);
   console.log(`Storage: ${storageUrl}`);

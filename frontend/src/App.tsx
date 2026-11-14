@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { FormEvent } from "react";
 import {
+  deleteImages,
   getImage,
   getImages,
   getJob,
@@ -45,6 +46,12 @@ export default function App() {
   const [statsError, setStatsError] = useState("");
   const [retry, setRetry] = useState(0);
   const [statsVersion, setStatsVersion] = useState(0);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteNotice, setDeleteNotice] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const resolvedKeyword = useRef("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,12 +62,14 @@ export default function App() {
       setError("");
       setMessage("");
       setData(null);
+      setSelected([]);
 
       try {
-        let keyword = search.keyword;
+        let keyword =
+          refresh > 0 ? resolvedKeyword.current : search.keyword;
         let completedImageId: string | undefined;
 
-        if (keyword) {
+        if (keyword && refresh === 0) {
           setMessage("Đang tìm trong kho ảnh…");
 
           const result = await searchImages(keyword, signal);
@@ -120,9 +129,8 @@ export default function App() {
 
               setMessage(
                 job.status === "running"
-                  ? `Đang tạo ảnh “${keyword}”${
-                      job.workerId ? ` bằng AI ${job.workerId}` : ""
-                    }…`
+                  ? `Đang tạo ảnh “${keyword}”${job.workerId ? ` bằng AI ${job.workerId}` : ""
+                  }…`
                   : `Yêu cầu “${keyword}” đã vào hàng đợi…`,
               );
 
@@ -133,6 +141,7 @@ export default function App() {
 
         if (signal.aborted) return;
 
+        resolvedKeyword.current = keyword;
         setMessage("Đang tải ảnh…");
         const images = await getImages(search.page, keyword, signal);
 
@@ -154,6 +163,14 @@ export default function App() {
             needsGeneration: false,
           });
         } else {
+          if (images.items.length === 0 && search.page > 1) {
+            setSearch((current) => ({
+              ...current,
+              page: Math.max(1, images.totalPages),
+            }));
+            return;
+          }
+
           setData(images);
         }
 
@@ -175,7 +192,7 @@ export default function App() {
     // Đổi từ khóa hoặc rời trang: dừng theo dõi ở trình duyệt.
     // Job trên server vẫn được xử lý.
     return () => controller.abort();
-  }, [search, retry]);
+  }, [search, retry, refresh]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -199,13 +216,53 @@ export default function App() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (deleting) return;
+
+    setRefresh(0);
+    setDeleteNotice("");
     setSearch({ keyword: input.trim(), page: 1 });
   }
 
   function reset() {
+    if (deleting) return;
+
+    setRefresh(0);
+    setDeleteNotice("");
     setInput("");
     setSearch({ keyword: "", page: 1 });
     setStatsVersion((value) => value + 1);
+  }
+
+  async function removeImages(ids: string[], bulk: boolean) {
+    if (deleting || loading || ids.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Xóa vĩnh viễn ${ids.length} ảnh khỏi kho?`,
+    );
+
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    setDeleteNotice("");
+
+    try {
+      await deleteImages(ids, bulk);
+
+      setDeleteNotice(
+        "Đã gửi yêu cầu xóa. Đang cập nhật danh sách và thống kê từ kho.",
+      );
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Không xóa được ảnh.",
+      );
+    } finally {
+      // Tải lại cả khi lỗi: kho có thể đã xử lý trước khi mất kết nối.
+      setSelected([]);
+      setRefresh((value) => value + 1);
+      setStatsVersion((value) => value + 1);
+      setDeleting(false);
+    }
   }
 
   return (
@@ -281,6 +338,24 @@ export default function App() {
             </button>
           </div>
 
+          {deleteError && (
+            <p role="alert" className="mb-4 text-red-700">
+              {deleteError}
+            </p>
+          )}
+
+          {deleteNotice && (
+            <p role="status" className="mb-4 text-slate-600">
+              {deleteNotice}
+            </p>
+          )}
+
+          {deleting && (
+            <p role="status" className="mb-4">
+              Đang xóa ảnh…
+            </p>
+          )}
+
           {loading && (
             <div
               role="status"
@@ -326,6 +401,34 @@ export default function App() {
                 </p>
               )}
 
+              {data.items.length > 0 && (
+                <div className="mb-5 flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      disabled={deleting}
+                      checked={selected.length === data.items.length}
+                      onChange={(event) =>
+                        setSelected(
+                          event.target.checked
+                            ? data.items.map((image) => image.id)
+                            : [],
+                        )
+                      }
+                    />
+                    Chọn tất cả ảnh trên trang
+                  </label>
+
+                  <button
+                    className="rounded-xl bg-red-700 px-5 py-3 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-40"
+                    disabled={deleting || selected.length === 0}
+                    onClick={() => void removeImages(selected, true)}
+                  >
+                    Xóa ảnh đã chọn ({selected.length})
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
                 {data.items.map((image) => (
                   <article
@@ -341,6 +444,22 @@ export default function App() {
                       className="aspect-square w-full object-cover"
                     />
                     <div className="p-4">
+                      <label className="mb-3 flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          disabled={deleting}
+                          aria-label={`Chọn ảnh ${image.subject} ${image.workerId}`}
+                          checked={selected.includes(image.id)}
+                          onChange={(event) =>
+                            setSelected((current) =>
+                              event.target.checked
+                                ? [...current, image.id]
+                                : current.filter((id) => id !== image.id),
+                            )
+                          }
+                        />
+                        Chọn ảnh
+                      </label>
                       <h3 className="break-words text-sm font-semibold">
                         {`${image.subject} ${image.workerId}.png`}
                       </h3>
@@ -350,6 +469,14 @@ export default function App() {
                       <time className="mt-2 block text-xs text-slate-400">
                         {new Date(image.createdAt).toLocaleString("vi-VN")}
                       </time>
+                      <button
+                        className="mt-3 text-sm font-semibold text-red-700 disabled:opacity-40"
+                        disabled={deleting}
+                        onClick={() => void removeImages([image.id], false)}
+                        aria-label={`Xóa ảnh ${image.subject} ${image.workerId}`}
+                      >
+                        Xóa ảnh
+                      </button>
                     </div>
                   </article>
                 ))}
@@ -359,7 +486,7 @@ export default function App() {
                 <div className="my-8 flex items-center justify-center gap-4">
                   <button
                     className={buttonClass}
-                    disabled={search.page <= 1}
+                    disabled={deleting || search.page <= 1}
                     onClick={() =>
                       setSearch((current) => ({
                         ...current,
@@ -374,7 +501,7 @@ export default function App() {
                   </span>
                   <button
                     className={buttonClass}
-                    disabled={search.page >= data.totalPages}
+                    disabled={deleting || search.page >= data.totalPages}
                     onClick={() =>
                       setSearch((current) => ({
                         ...current,

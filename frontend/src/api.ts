@@ -107,3 +107,34 @@ export function getImage(id: string, signal?: AbortSignal) {
     signal,
   );
 }
+
+export async function deleteImages(
+  ids: string[],
+  bulk: boolean,
+): Promise<void> {
+  const response = await fetch(
+    bulk
+      ? "/api/images/bulk-delete"
+      : `/api/images/${encodeURIComponent(ids[0])}`,
+    bulk
+      ? {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ image_ids: ids }),
+        }
+      : {
+          method: "DELETE",
+        },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Không xóa được ảnh (HTTP ${response.status}). ` +
+        "Vui lòng tải lại kho trước khi thử lại.",
+    );
+  }
+
+  // Không gọi response.json(): ID2 có thể trả 204.
+}
